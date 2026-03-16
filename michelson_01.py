@@ -3,18 +3,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib import gridspec
-import qrcode
-from PIL import Image
 import io
+import warnings
 
-# ======================== 全局配置（兼容中文+云端） ========================
+# 忽略字体警告
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
+
+# ======================== 全局配置 ========================
 plt.rcParams['font.sans-serif'] = ['SimHei', 'WenQuanYi Micro Hei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 plt.switch_backend('Agg')
 
-# ======================== 核心计算函数（优化提速+保留物理公式） ========================
+# ======================== 核心计算函数（对齐EXE + 缓存加速） ========================
+@st.cache_data(show_spinner=False, ttl=3600)
 def calculate_interference(k, h, wavelength_option, is_mobile=False):
-    # 波长映射（和EXE完全一致）
+    # 波长映射
     wavelength_map = {
         "红光 (650 nm)": 650e-9,
         "绿光 (532 nm)": 532e-9,
@@ -23,27 +26,27 @@ def calculate_interference(k, h, wavelength_option, is_mobile=False):
     }
     lamd = wavelength_map.get(wavelength_option, 650e-9)
 
-    # 优化：降低网格点数，提速且条纹变化更明显
+    # 分辨率配置（兼顾速度与清晰度）
     N = 256 if is_mobile else 512
     hi = 400e-3
     ym = 250e-3
-    h1 = h * 1e-9
+    h1 = h * 1e-9  # nm → m
 
-    # 生成坐标矩阵（EXE原逻辑）
+    # 生成坐标网格
     x = np.linspace(-ym, ym, N)
     y = np.linspace(-ym, ym, N)
     X, Y = np.meshgrid(x, y)
 
-    # 物理计算（完全复刻EXE公式）
+    # 物理计算（完全对齐EXE逻辑）
     r2 = np.sqrt(X ** 2 + Y ** 2)
     theta = np.arctan(r2 / hi)
-    di = lamd + k * lamd / 2 + h1
-    delta = 2 * di * np.cos(theta)
+    di = h1  # 直接使用h作为镜间距
+    delta = 2 * di * np.cos(theta) - k * lamd  # 明纹条件：2h cosθ = kλ
     phi = 2 * np.pi * delta / lamd
     I = 4 * 10 * np.cos(phi / 2) ** 2
-    I = I / np.max(I) if np.max(I) != 0 else I
+    I = I / np.max(I) if np.max(I) != 0 else I  # 归一化
 
-    # 配色映射（和EXE完全一致）
+    # 配色映射
     cmap_dict = {
         650e-9: 'Reds',
         532e-9: 'Greens',
@@ -52,21 +55,19 @@ def calculate_interference(k, h, wavelength_option, is_mobile=False):
     }
     cmap = cmap_dict.get(lamd, 'viridis')
 
-    # 绘图尺寸（响应式）
+    # 绘图尺寸
     fig_size = (10, 5) if is_mobile else (12, 6)
     fig = plt.figure(figsize=fig_size, dpi=96)
     gs = gridspec.GridSpec(1, 2, width_ratios=[1, 1.2])
 
-    # ---- 原理图（显示标题+图例）----
+    # -------------------------- 原理图 --------------------------
     ax1 = fig.add_subplot(gs[0])
     ax1.set_aspect('equal')
-
-    # 间距显示（EXE原逻辑）
     h2 = h * 1e-2
     if h > 300:
         h2 = 300e-2
 
-    # 绘制M2/M1/M2'
+    # 绘制光学元件
     ax1.plot([-6, 6], [18, 18], linestyle='-', color='g', linewidth=2, label='M2')
     ax1.plot([20, 20], [-8, 4], linestyle='-', color='g', linewidth=2, label='M1')
     ax1.plot([-6, 6], [22+h2, 22+h2], linestyle='--', color='g', linewidth=2, label="M2'")
@@ -76,64 +77,46 @@ def calculate_interference(k, h, wavelength_option, is_mobile=False):
     ax1.text(10, 21+h2, "M2'", fontsize=12, color='g')
     ax1.text(18, 5, 'M2', fontsize=12, color='g')
 
-    # 分束镜+光路
+    # 光路绘制
     ax1.plot([-4, 4], [-6, 2], linestyle='-', color='k', linewidth=2)
     ax1.plot([4, 12], [-6, 2], linestyle='-', color='k', linewidth=2)
     ax1.plot([0, 0], [-22, 18], linestyle='-', color='r', linewidth=1)
     ax1.plot([-20, 20], [-2, -2], linestyle='-', color='r', linewidth=0.7)
 
-    # 显示标题+图例
-    ax1.set_title('原理图', fontsize=13 if is_mobile else 14, fontweight='bold', pad=10)
-    ax1.legend(loc='upper right', fontsize=7 if is_mobile else 8, framealpha=0.9)
+    # 原理图样式
+    ax1.set_title('原理图', fontsize=13, fontweight='bold', pad=10)
+    ax1.legend(loc='upper right', fontsize=8, framealpha=0.9)
     ax1.set_ylim(-28, 28)
     ax1.set_xlim(-28, 28)
     ax1.set_facecolor('lightgray')
     ax1.set_xticks([])
     ax1.set_yticks([])
 
-    # ---- 干涉图样（显示标题）----
+    # -------------------------- 干涉图样 --------------------------
     ax2 = fig.add_subplot(gs[1])
     extent = [-10, 10, -10, 10]
     im = ax2.imshow(I, cmap=cmap, extent=extent, origin='lower')
 
-    # 刻度
+    # 刻度与标签
     ax2.yaxis.set_major_locator(ticker.MultipleLocator(5))
-    ax2.set_title("迈克尔逊干涉", fontsize=13 if is_mobile else 14, fontweight='bold', pad=10)
-    ax2.set_xlabel("x (mm)", fontsize=11 if is_mobile else 12)
-    ax2.set_ylabel("y (mm)", fontsize=11 if is_mobile else 12)
+    ax2.set_title("迈克尔逊干涉", fontsize=13, fontweight='bold', pad=10)
+    ax2.set_xlabel("x (mm)", fontsize=11)
+    ax2.set_ylabel("y (mm)", fontsize=11)
     ax2.grid(True, alpha=0.3, linestyle='--')
+
+    # 固定坐标轴范围，避免图像跳动
+    ax2.set_xlim(-10, 10)
+    ax2.set_ylim(-10, 10)
 
     # 颜色条
     cbar = plt.colorbar(im, ax=ax2, label='相对光强', shrink=0.85)
-    cbar.ax.tick_params(labelsize=9 if is_mobile else 10)
+    cbar.ax.tick_params(labelsize=9)
 
     plt.tight_layout(pad=2.0)
     return fig
 
-# ======================== 二维码生成函数 ========================
-def generate_qr_code(url):
-    try:
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_M,
-            box_size=5,
-            border=2
-        )
-        qr.add_data(url)
-        qr.make(fit=True)
-
-        qr_img = qr.make_image(fill_color="#2c3e50", back_color="white")
-        img_bytes = io.BytesIO()
-        qr_img.save(img_bytes, format='PNG', dpi=(96, 96))
-        img_bytes.seek(0)
-        return img_bytes
-    except Exception as e:
-        st.warning(f"二维码生成失败: {str(e)[:50]}")
-        return None
-
-# ======================== Streamlit 主界面（点击式参数调节） ========================
+# ======================== 主界面 ========================
 def main():
-    # 1. 页面配置
     st.set_page_config(
         page_title="迈克尔逊干涉实验仿真",
         page_icon="🔬",
@@ -141,13 +124,13 @@ def main():
         initial_sidebar_state="collapsed"
     )
 
-    # 2. 移动端检测
+    # 移动端检测
     try:
         is_mobile = st.query_params.get("mobile", "") == "true"
     except:
         is_mobile = False
 
-    # 3. 自定义CSS
+    # 自定义CSS
     st.markdown("""
     <style>
     .stApp { background-color: #f8f9fa; }
@@ -181,14 +164,10 @@ def main():
         margin-top: 1rem;
         line-height: 1.5;
     }
-    @media (max-width: 768px) {
-        .main-header h1 { font-size: 1.5rem !important; }
-        .stColumns { flex-direction: column !important; }
-    }
     </style>
     """, unsafe_allow_html=True)
 
-    # 4. 标题
+    # 页面标题
     st.markdown("""
     <div class="main-header">
         <h1>🔬 迈克尔逊干涉实验仿真</h1>
@@ -196,13 +175,12 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # 5. 布局
+    # 布局
     if is_mobile:
         col1, col2 = st.container(), st.container()
     else:
         col1, col2 = st.columns([1, 2])
 
-    # ========== 左侧栏（点击式参数+二维码+原理） ==========
     with col1:
         st.markdown("### 📱 扫码访问")
         st.info("""
@@ -210,10 +188,8 @@ def main():
         手机扫码或点击链接即可访问。
         """)
 
-        # 参数调节区（点击式，对齐EXE）
         st.markdown("### ⚙️ 参数调节")
         with st.container():
-            # 快捷按钮
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 if st.button("📌 经典红光参数", use_container_width=True):
@@ -222,13 +198,13 @@ def main():
                 if st.button("🔄 重置参数", use_container_width=True):
                     st.session_state.update({'k': 50, 'h': 20.0, 'wavelength': "红光 (650 nm)"})
 
-            # 初始化Session State
+            # 初始化会话状态
             if 'k' not in st.session_state:
                 st.session_state['k'] = 50
                 st.session_state['h'] = 20.0
                 st.session_state['wavelength'] = "红光 (650 nm)"
 
-            # 点击式数字输入框（替换滑块，解决卡顿）
+            # 点击式参数输入
             k = st.number_input(
                 "**干涉级次: K**",
                 min_value=1,
@@ -250,14 +226,12 @@ def main():
             wavelength = st.selectbox(
                 "**波长:**",
                 options=["红光 (650 nm)", "绿光 (532 nm)", "蓝光 (473 nm)", "黄光 (589.3 nm)"],
-                index=["红光 (650 nm)", "绿光 (532 nm)", "蓝光 (473 nm)", "黄光 (589.3 nm)"].index(
-                    st.session_state['wavelength'])
+                index=["红光 (650 nm)", "绿光 (532 nm)", "蓝光 (473 nm)", "黄光 (589.3 nm)"].index(st.session_state['wavelength'])
             )
 
-            # 更新Session State
+            # 更新会话状态
             st.session_state.update({'k': k, 'h': h, 'wavelength': wavelength})
 
-        # 当前参数展示
         st.markdown("### 📊 当前参数")
         st.markdown(f"""
         <div class="param-card">
@@ -267,7 +241,6 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        # 实验原理（完全复刻EXE样式）
         st.markdown("### 📚 实验原理")
         st.markdown("""
         <div class="principle-box">
@@ -278,14 +251,12 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-    # ========== 右侧栏（仿真结果） ==========
     with col2:
         try:
             with st.spinner('🔄 正在计算干涉图样...'):
                 fig = calculate_interference(k, h, wavelength, is_mobile)
                 st.pyplot(fig, width='stretch')
                 plt.close(fig)
-
             st.success(f"✅ 计算完成 | K={k} | h={h}nm | {wavelength}")
         except Exception as e:
             st.error(f"❌ 计算出错：{str(e)[:80]}...")
@@ -299,6 +270,5 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-# ======================== 程序入口 ========================
 if __name__ == "__main__":
     main()
