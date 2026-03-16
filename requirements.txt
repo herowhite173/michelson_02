@@ -4,5 +4,4 @@ matplotlib==3.10.8
 qrcode[pil]==7.4.2
 Pillow==11.3.0
 
-fonttools>=4.40.0  # 新增：字体解析
-matplotlib-font-manager>=0.4.0  # 新增：字体管理
+fonttools>=4.40.0 
