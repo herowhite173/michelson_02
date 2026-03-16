@@ -8,12 +8,12 @@ from PIL import Image
 import io
 
 # ======================== 全局配置（兼容中文+云端） ========================
-plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Arial Unicode MS']  # 优先用黑体，对齐EXE
+plt.rcParams['font.sans-serif'] = ['SimHei', 'WenQuanYi Micro Hei', 'DejaVu Sans']  # 优先黑体，确保中文显示
 plt.rcParams['axes.unicode_minus'] = False
 plt.switch_backend('Agg')
 
 
-# ======================== 核心计算函数（完全对齐EXE逻辑） ========================
+# ======================== 核心计算函数（优化提速+保留物理公式） ========================
 def calculate_interference(k, h, wavelength_option, is_mobile=False):
     # 波长映射（和EXE完全一致）
     wavelength_map = {
@@ -24,10 +24,9 @@ def calculate_interference(k, h, wavelength_option, is_mobile=False):
     }
     lamd = wavelength_map.get(wavelength_option, 650e-9)
 
-    # 基础参数（和EXE完全一致）
-    N = 512 if is_mobile else 1024  # EXE用1024，网页版适配移动端
+    # 优化：降低网格点数，提速且条纹变化更明显（核心优化，不改物理）
+    N = 256 if is_mobile else 512  # 从1024→512，计算速度翻倍
     hi = 400e-3  # EXE原参数
-    r = 250e-3  # EXE原参数
     ym = 250e-3  # EXE原参数
     h1 = h * 1e-9  # nm转m，和EXE一致
 
@@ -36,21 +35,21 @@ def calculate_interference(k, h, wavelength_option, is_mobile=False):
     y = np.linspace(-ym, ym, N)
     X, Y = np.meshgrid(x, y)
 
-    # 物理计算（完全复刻EXE逻辑，修正之前的光程差错误）
+    # 物理计算（完全复刻EXE公式，一字不改）
     r2 = np.sqrt(X ** 2 + Y ** 2)
-    theta = np.arctan(r2 / hi)  # 出射光角度，EXE原逻辑
-    di = lamd + k * lamd / 2 + h1  # EXE原间距计算
-    delta = 2 * di * np.cos(theta)  # 光程差，EXE原公式
-    phi = 2 * np.pi * delta / lamd  # 相位差，EXE原公式
-    I = 4 * 10 * np.cos(phi / 2) ** 2  # 光强，EXE原公式
-    I = I / np.max(I) if np.max(I) != 0 else I  # 归一化
+    theta = np.arctan(r2 / hi)
+    di = lamd + k * lamd / 2 + h1
+    delta = 2 * di * np.cos(theta)
+    phi = 2 * np.pi * delta / lamd
+    I = 4 * 10 * np.cos(phi / 2) ** 2
+    I = I / np.max(I) if np.max(I) != 0 else I
 
-    # 配色映射（和EXE完全一致，取消反转）
+    # 配色映射（和EXE完全一致）
     cmap_dict = {
-        650e-9: 'Reds',  # EXE：红光→Reds
-        532e-9: 'Greens',  # EXE：绿光→Greens
-        473e-9: 'Blues',  # EXE：蓝光→Blues
-        589.3e-9: 'YlOrBr'  # EXE：黄光→YlOrBr
+        650e-9: 'Reds',
+        532e-9: 'Greens',
+        473e-9: 'Blues',
+        589.3e-9: 'YlOrBr'
     }
     cmap = cmap_dict.get(lamd, 'viridis')
 
@@ -59,55 +58,58 @@ def calculate_interference(k, h, wavelength_option, is_mobile=False):
     fig = plt.figure(figsize=fig_size, dpi=96)
     gs = gridspec.GridSpec(1, 2, width_ratios=[1, 1.2])
 
-    # ---- 原理图（完全复刻EXE样式）----
+    # ---- 原理图（显示标题+图例）----
     ax1 = fig.add_subplot(gs[0])
     ax1.set_aspect('equal')  # 宽高比1，和EXE一致
 
     # 间距显示（EXE原逻辑）
-    h2 = h * 1e-2  # nm转cm，EXE原转换逻辑
+    h2 = h * 1e-2
     if h > 300:
         h2 = 300e-2
 
-    # 绘制M2/M1/M2'（和EXE完全一致的位置、颜色、样式）
-    ax1.plot([-6, 6], [18, 18], linestyle='-', color='g', linewidth=2, label='M2')  # M2
-    ax1.plot([20, 20], [-8, 4], linestyle='-', color='g', linewidth=2, label='M1')  # M1
-    ax1.plot([-6, 6], [22 + h2, 22 + h2], linestyle='--', color='g', linewidth=2, label="M2'")  # M2'
+    # 绘制M2/M1/M2'（添加label，用于图例）
+    ax1.plot([-6, 6], [18, 18], linestyle='-', color='g', linewidth=2, label='M2（固定镜）')
+    ax1.plot([20, 20], [-8, 4], linestyle='-', color='g', linewidth=2, label='M1（移动镜）')
+    ax1.plot([-6, 6], [22 + h2, 22 + h2], linestyle='--', color='r', linewidth=2, label="M2'（虚像）")
 
     # 文本标注（和EXE完全一致）
     ax1.text(10, 15, "M1", fontsize=12, color='g')
-    ax1.text(10, 21 + h2, "M2'", fontsize=12, color='g')
+    ax1.text(10, 21 + h2, "M2'", fontsize=12, color='r')
     ax1.text(18, 5, 'M2', fontsize=12, color='g')
 
-    # 分束镜+光路（和EXE完全一致）
-    ax1.plot([-4, 4], [-6, 2], linestyle='-', color='k', linewidth=2)  # 分束镜
-    ax1.plot([4, 12], [-6, 2], linestyle='-', color='k', linewidth=2)  # 分束镜延伸
-    ax1.plot([0, 0], [-22, 18], linestyle='-', color='r', linewidth=1)  # 水平光路
-    ax1.plot([-20, 20], [-2, -2], linestyle='-', color='r', linewidth=0.7)  # 垂直光路
+    # 分束镜+光路
+    ax1.plot([-4, 4], [-6, 2], linestyle='-', color='k', linewidth=2, label='分束镜')
+    ax1.plot([4, 12], [-6, 2], linestyle='-', color='k', linewidth=2)
+    ax1.plot([0, 0], [-22, 18], linestyle='-', color='r', linewidth=1, label='入射光路')
+    ax1.plot([-20, 20], [-2, -2], linestyle='-', color='r', linewidth=0.7, label='反射光路')
 
-    # 坐标轴范围（和EXE完全一致）
+    # 显示标题+图例
+    ax1.set_title('迈克尔逊干涉原理图', fontsize=13, fontweight='bold', pad=10)  # 原理图标题
+    ax1.legend(loc='upper right', fontsize=8, framealpha=0.9)  # 显示图例
     ax1.set_ylim(-28, 28)
     ax1.set_xlim(-28, 28)
-    ax1.set_facecolor('lightgray')  # 背景色，和EXE一致
+    ax1.set_facecolor('lightgray')
     ax1.set_xticks([])
     ax1.set_yticks([])
-    ax1.set_title('原理图', fontsize=12, fontweight='bold')  # 标题对齐EXE
 
-    # ---- 干涉图样（完全复刻EXE样式）----
+    # ---- 干涉图样（显示标题+图例）----
     ax2 = fig.add_subplot(gs[1])
     # 显示范围（和EXE一致，转mm）
     extent = [-10, 10, -10, 10]
-    im = ax2.imshow(I, cmap=cmap, extent=extent, origin='lower')
+    im = ax2.imshow(I, cmap=cmap, extent=extent, origin='lower', label='相对光强分布')
 
     # 刻度（和EXE一致）
     ax2.yaxis.set_major_locator(ticker.MultipleLocator(5))
-    ax2.set_title("迈克尔逊干涉", fontsize=12, fontweight='bold')  # 标题对齐EXE
+    # 显示标题
+    ax2.set_title(f"迈克尔逊等倾干涉条纹（{wavelength_option}）", fontsize=13, fontweight='bold', pad=10)
     ax2.set_xlabel("x (mm)", fontsize=11)
     ax2.set_ylabel("y (mm)", fontsize=11)
     ax2.grid(True, alpha=0.3, linestyle='--')
 
-    # 颜色条（对齐EXE）
+    # 颜色条+图例
     cbar = plt.colorbar(im, ax=ax2, label='相对光强', shrink=0.85)
     cbar.ax.tick_params(labelsize=9)
+    ax2.legend(loc='upper right', fontsize=8, framealpha=0.9)  # 干涉图图例
 
     plt.tight_layout(pad=2.0)
     return fig
@@ -135,7 +137,7 @@ def generate_qr_code(url):
         return None
 
 
-# ======================== Streamlit 主界面（优化版） ========================
+# ======================== Streamlit 主界面（优化参数滑块） ========================
 def main():
     # 1. 页面配置
     st.set_page_config(
@@ -151,7 +153,7 @@ def main():
     except:
         is_mobile = False
 
-    # 3. 自定义CSS（优化样式，对齐EXE）
+    # 3. 自定义CSS（优化样式）
     st.markdown("""
     <style>
     .stApp { background-color: #f8f9fa; }
@@ -215,7 +217,7 @@ def main():
         手机扫码或点击链接即可访问。
         """)
 
-        # 参数调节区
+        # 参数调节区（优化步长，让条纹变化更明显）
         st.markdown("### ⚙️ 参数调节")
         with st.container():
             # 快捷按钮
@@ -230,21 +232,21 @@ def main():
             # 初始化Session State（默认值对齐EXE）
             if 'k' not in st.session_state:
                 st.session_state['k'] = 50
-                st.session_state['h'] = 20  # EXE默认值
+                st.session_state['h'] = 20
                 st.session_state['wavelength'] = "红光 (650 nm)"
 
-            # 滑块（范围+步长完全对齐EXE）
+            # 滑块（优化步长，让变化更明显）
             k = st.slider(
                 "**干涉级次 K**",
-                min_value=1, max_value=200,  # EXE范围
-                value=st.session_state['k'], step=1,  # EXE步长
+                min_value=1, max_value=200,
+                value=st.session_state['k'], step=5,  # 步长从1→5，变化更明显
                 help="K值越大，干涉条纹越密集 | 取值范围：1-200"
             )
             h = st.slider(
                 "**间距 h (nm)**",
-                min_value=10, max_value=2000,  # EXE范围
-                value=st.session_state['h'], step=10,  # EXE步长
-                help="M1与M2'的空气膜间距 | 取值范围：10-2000nm"
+                min_value=10, max_value=1000,  # 缩小上限，避免条纹过密
+                value=st.session_state['h'], step=20,  # 步长从10→20，变化更明显
+                help="M1与M2'的空气膜间距 | 取值范围：10-1000nm"
             )
             wavelength = st.selectbox(
                 "**入射光波长**",
@@ -282,7 +284,6 @@ def main():
         try:
             with st.spinner('🔄 正在计算干涉图样...'):
                 fig = calculate_interference(k, h, wavelength, is_mobile)
-                # 替换废弃参数，对齐竞赛要求
                 st.pyplot(fig, width='stretch')
                 plt.close(fig)
 
